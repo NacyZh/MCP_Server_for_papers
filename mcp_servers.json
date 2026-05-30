@@ -1,0 +1,11 @@
+{
+    "servers": {
+        "matlab": {
+            "type": "stdio",
+            "command": "${MATLAB_MCP_PYTHON_EXECUTABLE}",
+            "args": [
+                "${MATLAB_MCP_SERVER_PATH}"
+            ]
+        }
+    }
+}

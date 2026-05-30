@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "description": "ScholarAgent built-in skills",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "scholar-agent-examples",
+      "description": "Example skills demonstrating ScholarAgent skill registration and prompt injection.",
+      "source": "./skills",
+      "strict": false,
+      "skills": [
+        "example"
+      ]
+    }
+  ]
+}
