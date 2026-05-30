@@ -226,19 +226,6 @@ Check frontend JavaScript syntax:
 node --check scholar_agent/web/static/app.js
 ```
 
-## GitHub Notes
-
-Do not commit local runtime data or secrets:
-
-- `.env`
-- `workspace/db/`
-- `workspace/logs/`
-- `workspace/models/`
-- `workspace/papers/`
-- generated external code/document folders outside this repository
-
-The included `.gitignore` already excludes the repository-local workspace and common Python build artifacts.
-
 ## License
 
 MIT
