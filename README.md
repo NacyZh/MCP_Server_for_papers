@@ -2,7 +2,7 @@
 
 ScholarAgent 是一个本地优先的学术研究智能体项目，面向文献检索、论文总结、方法分析、代码复现和学术写作。项目集成了 LangGraph 多智能体工作流、本地论文库检索、arXiv 检索、受控代码/文档工作区、FastAPI Web UI 以及 MCP Server。
 
-项目默认把论文、数据库、向量索引、日志、模型和生成文件保存在本机；除非你显式配置外部 LLM、arXiv 或 MCP 服务，否则运行时数据不会离开本地工作目录。
+项目默认把论文、数据库、向量索引、日志、模型和生成文件保存在本机。
 
 ## 功能特性
 
@@ -55,13 +55,6 @@ python -m venv .venv
 python -m pip install -U pip
 python -m pip install -r requirements.txt
 ```
-
-开发模式：
-
-```powershell
-python -m pip install -e ".[dev]"
-```
-
 ## 本地模型
 
 使用本地论文导入或本地检索前，需要提前下载两个 BGE 模型：
