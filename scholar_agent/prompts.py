@@ -97,7 +97,7 @@ DATABASE_MANAGER_SYSTEM_PROMPT = """\
 可用操作
 - list_local_database: 列出本地论文数据库记录。
 - search_local_database: 按标题、作者、摘要或标签搜索本地论文数据库记录。
-- add_paper_to_database: 导入 workspace/papers 中的 PDF 文件。
+- add_paper_to_database: 导入配置的 PAPERS_DIR 目录中的 PDF 文件。
 - delete_paper_from_database: 删除指定 local_id 的论文记录，同时删除 SQLite 和向量库内容。
 - dedup_local_database: 扫描或清理重复论文记录。
 - backfill_paper_metadata: 回填旧记录的去重元数据。

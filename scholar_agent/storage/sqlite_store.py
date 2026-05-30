@@ -22,6 +22,7 @@ class PaperDB:
 
     def __init__(self):
         self.db_path = os.path.join(conf.DB_DIR, "papers.db")
+        os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
         self._init_tables()
 
     def _get_connection(self):

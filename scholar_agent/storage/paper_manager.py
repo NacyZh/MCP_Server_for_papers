@@ -588,7 +588,7 @@ if __name__ == "__main__":
             print(f"  reasons={grp['reasons']} members=[{ids}]")
         print("=" * 60)
 
-        query = "sparse code multiple access"
+        query = "simulation results"
         start_time = time.time()
         results = manager.search_knowledge(query, n_results=3)
         cost_time = time.time() - start_time

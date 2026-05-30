@@ -238,7 +238,7 @@ class ArxivDownloadTool(BaseTool):
         "properties": {
             "arxiv_id": {"type": "string", "description": "arXiv paper ID (e.g., '2301.12345')."},
             "filename": {"type": "string", "description": "Filename without .pdf extension."},
-            "dirpath": {"type": "string", "description": "Download directory (default: workspace/papers)."},
+            "dirpath": {"type": "string", "description": "Download directory (default: configured PAPERS_DIR)."},
         },
         "required": ["arxiv_id", "filename"],
         "additionalProperties": False,
@@ -397,6 +397,7 @@ class DbAddTool(BaseTool):
         if on_duplicate not in ("skip", "replace", "keep_both"):
             return ToolResult("fail", f"Invalid on_duplicate: {on_duplicate!r}")
 
+        os.makedirs(conf.PAPERS_DIR, exist_ok=True)
         pdf_path = os.path.join(conf.PAPERS_DIR, filename)
         success, msg = self.pm.ingest_pdf(pdf_path, tags="Agent-Added", on_duplicate=on_duplicate)
         return ToolResult("success" if success else "fail", msg)

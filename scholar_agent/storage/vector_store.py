@@ -48,6 +48,7 @@ class VectorDB:
         self.reranker_model_path = reranker_model_path
         self.reranker = None
 
+        os.makedirs(conf.DB_DIR, exist_ok=True)
         self.client = chromadb.PersistentClient(path=chroma_path)
         self.collection = self.client.get_or_create_collection(name=collection_name)
         os.makedirs(os.path.dirname(embed_model_path), exist_ok=True)

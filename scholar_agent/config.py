@@ -57,8 +57,10 @@ class Config:
 
     WORKSPACE_DIR = _resolve_base_relative(os.getenv("WORKSPACE_DIR", "workspace"))
     DB_DIR = os.path.join(WORKSPACE_DIR, "db")
-    PAPERS_DIR = os.path.join(WORKSPACE_DIR, "papers")
     MODELS_DIR = os.path.join(WORKSPACE_DIR, "models")
+    PAPERS_DIR = _resolve_base_relative(
+        os.getenv("PAPERS_DIR", os.path.join(WORKSPACE_DIR, "papers"))
+    )
     BGE_M3_MODEL_PATH = _resolve_base_relative(
         os.getenv("BGE_M3_MODEL_PATH", os.path.join(MODELS_DIR, "bge-m3"))
     )

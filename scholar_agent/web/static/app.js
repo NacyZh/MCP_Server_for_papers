@@ -441,7 +441,7 @@ async function loadPdfFiles() {
     if (files.length === 0) {
       const empty = document.createElement("option");
       empty.value = "";
-      empty.textContent = "No PDF files in workspace/papers";
+      empty.textContent = "No PDF files in configured papers directory";
       pdfSelect.appendChild(empty);
       return;
     }
