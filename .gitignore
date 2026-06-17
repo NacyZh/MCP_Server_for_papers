@@ -10,18 +10,45 @@ __pycache__/
 dist/
 build/
 *.egg
+.mypy_cache/
+.ruff_cache/
+.ruff_cache_local/
+.mypy_cache_local/
+.pip-audit-cache/
+.tools/
+.uv-cache/
+.hf-cache/
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+.agents/
+.claude/
+.codex/
+.github/
 
 # Workspace data (large files, runtime data)
 workspace/db/
 workspace/logs/
 workspace/models/
 workspace/papers/
+
+# RAG runtime data and local models
+rag/db/
+*.log
+rag/models/*
+!rag/models/.gitkeep
+rag/finetune/models/*
+!rag/finetune/models/.gitkeep
+rag/finetune/data/*
+!rag/finetune/data/.gitkeep
+rag/evaluation/data/*
+!rag/evaluation/data/.gitkeep
+!rag/evaluation/data/retrieval_eval.sample.jsonl
+rag/evaluation/results/*
+!rag/evaluation/results/.gitkeep
 
 # OS files
 .DS_Store
@@ -33,4 +60,5 @@ Thumbs.db
 # Virtual environments
 venv/
 .venv/
+.venv.windows-backup*/
 env/

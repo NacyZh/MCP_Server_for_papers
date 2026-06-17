@@ -3,28 +3,19 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "scholar-agent"
+name = "scholar-agent-rag-mcp"
 version = "0.1.0"
-description = "Local multi-agent academic research assistant with paper retrieval, code reproduction, writing tools, Web UI, and MCP integration."
+description = "Local paper RAG MCP server with SQLite metadata, ChromaDB retrieval, BGE embeddings, and optional HyDE."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "ScholarAgent Contributors" },
 ]
-keywords = [
-    "academic-research",
-    "llm-agent",
-    "langgraph",
-    "mcp",
-    "paper-search",
-    "arxiv",
-    "rag",
-]
+keywords = ["academic-research", "mcp", "paper-search", "rag", "chromadb"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -32,55 +23,57 @@ classifiers = [
 dependencies = [
     "python-dotenv>=1.0",
     "pydantic>=2.7",
-    "PyYAML>=6.0",
-    "fastapi>=0.111",
-    "uvicorn[standard]>=0.30",
-    "langchain-core>=0.3",
-    "langchain-openai>=0.2",
-    "langchain-text-splitters>=0.2",
-    "langgraph>=0.2",
+    "pydantic-settings>=2.0",
     "mcp>=1.0",
-    "arxiv>=2.1",
-    "certifi>=2024.2",
-    "python-docx>=1.1",
     "PyMuPDF>=1.24",
     "marker-pdf>=1.0",
+    "anthropic>=0.46.0,<0.47.0",
+    "openai>=1.65.2,<2.0.0",
+    "opencv-python-headless==4.11.0.86",
+    "starlette>=0.40.0,<1.0",
     "chromadb>=0.5",
     "FlagEmbedding>=1.2",
+    "huggingface_hub>=0.24",
     "rank-bm25>=0.2",
     "jieba>=0.42",
-    "transformers>=4.44",
-    "scikit-learn>=1.4",
+    "langchain-text-splitters>=0.3",
     "numpy>=1.26",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "ruff>=0.5",
-    "mypy>=1.8",
+    "mypy>=1.8,<2",
+    "types-PyYAML>=6.0",
+    "build>=1.2",
+    "pip-audit>=2.7",
 ]
-
-[project.urls]
-Homepage = "https://github.com/your-org/scholar-agent"
-Repository = "https://github.com/your-org/scholar-agent"
+hyde-train = [
+    "llamafactory>=0.9",
+]
+hyde-vllm = [
+    "vllm>=0.6; platform_system != 'Windows'",
+]
+summary-vllm = [
+    "vllm>=0.6; platform_system != 'Windows'",
+]
 
 [project.scripts]
 scholar-agent-mcp = "main:main"
 
-[tool.setuptools.packages.find]
-include = ["scholar_agent*"]
+[tool.setuptools]
+py-modules = ["config", "main"]
 
-[tool.setuptools.package-data]
-"scholar_agent.web.static" = ["*.html", "*.css", "*.js", "*.svg"]
+[tool.setuptools.packages.find]
+include = ["rag*"]
+exclude = ["workspace*", "rag.models*", "rag.finetune.models*", "rag.logs*", "rag.evaluation.results*"]
 
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-exclude = [
-    "workspace",
-    "skills",
-]
+exclude = ["workspace", "rag/logs", "rag/evaluation/results"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
@@ -88,10 +81,9 @@ select = ["E", "F", "I", "N", "W"]
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
-exclude = [
-    "workspace",
-    "skills",
-]
+follow_imports = "skip"
+exclude = ["workspace|rag/logs|rag/evaluation/results"]
+sqlite_cache = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

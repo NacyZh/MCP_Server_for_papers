@@ -1,0 +1,739 @@
+# RAG MCP 项目交接 TODO
+
+当前项目路径：D:\Scholar-Agent
+
+当前目标：项目已经从 ScholarAgent/agent/frontend 方向精简为 RAG-only MCP tool 项目。下一阶段重点是把论文总结类能力做成生产级、token 友好的结构化 RAG，而不是让 LLM 每次读取大量原始 chunk。
+
+## 本轮 WSL 环境验证（2026-06-15）
+
+- 当前 WSL 发行版：Debian GNU/Linux 13 (trixie)。
+- 原 `.venv` 是 Windows 虚拟环境结构（`Scripts/Lib`），WSL 下不可直接使用；已备份为 `.venv.windows-backup-20260615`。
+- WSL 系统内没有可用 `python/python3`，且当前用户无 apt 写权限；已在项目内安装本地 `uv` 到 `.tools/bin`，并用 `uv` 创建新的 Linux `.venv`。
+- 新 `.venv`：
+  - Python: `3.11.15`
+  - torch: `2.8.0+cu128`
+  - vLLM: `0.11.0`
+  - CUDA 可用，GPU: `NVIDIA GeForce RTX 5070 Ti`
+- 已安装项目依赖、dev 依赖和 `summary-vllm` extra。
+- 为 WSL editable install 修复：
+  - `pyproject.toml` 增加顶层模块 `config`、`main`，避免安装后 `ModuleNotFoundError: config`。
+  - 补充缺失依赖 `langchain-text-splitters`，供 `rag/plugins/pdf_parser.py` 使用。
+  - `mypy` 配置增加 `follow_imports = "skip"`，避免在完整 ML/vLLM 环境下深度追踪第三方包导致长时间卡住。
+- 当前验证结果：
+  - `.venv/bin/pytest tests -q`：63 passed
+  - `.venv/bin/ruff check rag main.py config.py tests`：passed
+  - `.venv/bin/mypy rag main.py config.py --no-sqlite-cache`：passed
+- vLLM 链路验证：
+  - `torch.cuda.is_available()` 为 `true`。
+  - vLLM 能加载本地 tiny GPT-2 smoke test 模型并完成一次 CUDA 生成。
+  - 初次访问 `huggingface.co` 在 WSL 中不可达/挂起；PyPI 可访问。
+  - 后续复测 `huggingface.co` 已恢复连接，vLLM 成功从 Hugging Face 下载 `facebook/opt-125m`，加载到 CUDA engine 并完成一次生成。
+- 当前 summary model 状态：
+  - 默认路径 `rag/models/Qwen3-8B` 不存在。
+  - `vllm_installed=true`，`model_download_available=true`，但 `generation_ready=false`，阻塞原因是 `summary_model_missing`。
+  - 后续若要跑真实 `build_paper_summary` + Qwen3-8B，需要下载或手动放置完整模型到 `rag/models/Qwen3-8B`。
+
+## 本轮 Qwen3-8B 真实下载与生产化验证（2026-06-15）
+
+- 已通过项目生产路径 `model_manager.ensure_summary_model()` 触发真实下载：
+  - repo: `Qwen/Qwen3-8B`
+  - target: `rag/models/Qwen3-8B`
+  - 下载文件数：15
+  - 下载耗时：约 2483 秒（约 41 分 23 秒）
+  - 下载完成后正式目录原子发布，`rag/models/Qwen3-8B.lock` 已释放。
+  - ready marker: `rag/models/Qwen3-8B/.scholaragent_model_ready.json`
+  - 模型权重：5 个 safetensors 分片，总权重约 16.38GB。
+- 下载链路生产行为验证：
+  - 下载期间使用 `.download-Qwen3-8B-*` 临时目录。
+  - 未完成时不会暴露为正式 `Qwen3-8B` 目录。
+  - 成功后写入 ready marker 并 rename 为正式目录。
+  - 失败路径已有单元测试覆盖临时目录清理与锁超时。
+- 真实 vLLM 加载验证结果：
+  - 默认旧配置 `max_model_len=24576` 在 RTX 5070 Ti 16GB + WSL 上会长时间卡在初始化/torch.compile，GPU 显存约 15.8GB 且 100% 利用率，不符合生产可观测性。
+  - 加入 eager 后可以避免 CUDA graph 长时间卡住，但 `gpu_memory_utilization=0.85` 会明确失败：`No available memory for the cache blocks`。
+  - 将 `gpu_memory_utilization=0.98` 会在 vLLM 启动阶段失败：启动可用显存低于目标显存利用率。
+  - 尝试 `cpu_offload_gb=4` 在 WSL/vLLM V1 下失败：`V1 CPU offloading requires uva (pin memory) support`。
+  - 尝试 `VLLM_USE_V1=0` 未成功切到可用 V0 路径，vLLM 报 V1/VLLM_USE_V1 状态不一致。
+- 生产化修复：
+  - 新增 `RAG_SUMMARY_ENFORCE_EAGER`，默认 `true`，并传给 vLLM，避免 WSL/消费级 GPU 上 CUDA graph 初始化不可观测卡住。
+  - 新增 `RAG_SUMMARY_CPU_OFFLOAD_GB` 配置项，默认 `0`；保留给非 WSL 且支持 UVA/pin memory 的环境手动启用。
+  - 将 `RAG_SUMMARY_MAX_INPUT_TOKENS` 默认从 `24576` 调整为 `4096`。
+  - `get_summary_model_status()` 增加 runtime preflight：
+    - 模型权重大小
+    - GPU 是否可用
+    - GPU 名称
+    - free/total/budget 显存
+    - CPU offload 是否可用
+    - `runtime_blocker`
+  - 当前本机状态会返回：
+    - `generation_ready=false`
+    - `generation_blocker=summary_model_gpu_memory_insufficient`
+- 结论：
+  - Qwen3-8B 下载链路符合生产级原子下载/锁/ready marker 设计。
+  - Qwen3-8B bf16 真实推理链路在当前 16GB WSL GPU 环境下不可用；生产上需要更小 summary 模型、量化模型，或更大显存/原生 Linux + 可用 CPU offload。
+  - 代码已避免“模型存在就宣称可生成”的错误状态，健康检查应根据 `generation_ready/generation_blocker` 判断是否能实际生成。
+
+## 本轮切换到可推理量化 summary 模型（2026-06-15）
+
+- 默认 summary 模型已从 bf16 `Qwen/Qwen3-8B` 切换为官方 AWQ 量化模型：
+  - `RAG_SUMMARY_MODEL_NAME=Qwen/Qwen3-8B-AWQ`
+  - `RAG_SUMMARY_MODEL_REPO=Qwen/Qwen3-8B-AWQ`
+  - `RAG_SUMMARY_MODEL_PATH=./rag/models/Qwen3-8B-AWQ`
+  - `RAG_SUMMARY_GPU_MEMORY_UTILIZATION=0.75`
+  - `RAG_SUMMARY_MAX_INPUT_TOKENS=4096`
+  - `RAG_SUMMARY_ENFORCE_EAGER=true`
+  - `RAG_SUMMARY_CPU_OFFLOAD_GB=0`
+- 已通过项目生产路径 `model_manager.ensure_summary_model()` 下载 AWQ 模型：
+  - 下载文件数：12
+  - 下载耗时：约 991 秒（约 16 分 31 秒）
+  - 权重：2 个 safetensors 分片，总权重约 6.10GB。
+  - ready marker 已写入，下载锁已释放。
+- 首次 AWQ 下载过程中手动中断暴露了一个生产清理缺口：
+  - `KeyboardInterrupt` 不继承 `Exception`，原 `_download_model_atomic()` 未捕获，导致 `.download-*` 临时目录残留。
+  - 已修复为捕获 `BaseException` 做临时目录清理；普通 `Exception` 仍包装为 `ModelUnavailableError`，`KeyboardInterrupt` 等中断原样抛出。
+  - 已新增中断下载清理测试。
+- AWQ 真实推理验证：
+  - vLLM 自动选择 `awq_marlin` kernel。
+  - 权重加载占用约 5.7GiB。
+  - KV cache 约 4.76GiB，4096 token 请求最大并发约 8.46。
+  - 在当前 RTX 5070 Ti 16GB + WSL 环境下完成真实 summary 生成。
+  - 生成耗时：首次加载总耗时约 103 秒；实际单请求生成约 6.5 秒。
+- 输出质量修复：
+  - Qwen3 AWQ 首次生成会在摘要后追加自我推理文本。
+  - 已在 prompt 中加入 `/no_think`，并增强 `_strip_reasoning()` 对常见 reasoning cue 的截断兜底。
+  - 复测输出为干净摘要。
+- 当前 `get_summary_model_status()` 返回：
+  - `complete=true`
+  - `generation_ready=true`
+  - `generation_blocker=""`
+- 本轮验证：
+  - `pytest tests -q`：64 passed
+  - `ruff check rag main.py config.py tests`：passed
+  - `mypy rag main.py config.py --no-sqlite-cache`：passed
+
+## 当前项目背景
+
+- 代码主体已经迁移到 `rag/` 包。
+- 根目录保留 `config.py`、`main.py`、`.env.example`、`README.md`、`pyproject.toml`。
+- 旧的 `scholar_agent/`、前端、agent workflow、技能加载等内容已经在工作区中删除或迁移。
+- 当前 MCP tools 主要位于 `rag/tools/paper_tools.py`。
+- 当前存储层主要位于：
+  - `rag/storage/paper_manager.py`
+  - `rag/storage/sqlite_store.py`
+  - `rag/storage/vector_store.py`
+  - `rag/storage/model_manager.py`
+  - `rag/storage/migrations.py`
+- 当前日志默认应使用 `RAG_*` 命名，避免再使用 `SCHOLAR_AGENT_*`，因为这是 RAG 系统，不是 agent 系统。
+- 日志目录已经设计为 `rag/logs/`，不要再默认写到 `workspace/logs/`。
+- evaluation 目录已经用于真实评估数据与结果：
+  - `rag/evaluation/data/`
+  - `rag/evaluation/results/`
+  - `rag/evaluation/run_retrieval_eval.py`
+  - `rag/evaluation/README.md`
+- finetune 目录已经用于 HyDE/summary 等本地模型微调资料：
+  - `rag/finetune/`
+  - `rag/finetune/README.md`
+
+## 已完成的重要方向
+
+- 删除 agent/frontend 相关代码，只保留 RAG 和 MCP tools 方向。
+- 配置和运行入口放在根目录。
+- papers、models、logs、evaluation、finetune 相关路径已逐步工程化。
+- 对长耗时工具增加了任务化设计。
+- 对 tool 增加了结构化错误码。
+- 对 `add_paper_to_database` 增强了异常可观测性：
+  - PDF hash 阶段
+  - PDF parse 阶段
+  - SQLite store 阶段
+  - vector store 阶段
+- PDF 解析已改为 marker-only；marker 失败、模型不可用或设备不可用时结构化失败，不再静默改用 PyMuPDF。
+- 模型管理已经开始引入生产级设计，embedding/reranker 本地缺失时应自动下载到配置的 models 目录。
+- `.env.example` 中不应放具体个人机器绝对路径示例，避免不符合 GitHub 规范。
+
+## 本轮新增完成（2026-06-13）
+
+- 新增 SQLite schema v4：
+  - `paper_sections`
+  - `paper_profiles`
+  - `paper_summaries`
+  - `section_summaries`
+- `replace_paper_chunks` 会自动重建 `paper_sections`。
+- 新增 summary 缓存表和后台构建流程：
+  - summary model 将 section 内容压缩为 section summary
+  - section summaries 汇总为 paper profile
+  - 生成 short / medium / long 三档 paper summary
+  - 当前实现要求配置的 summary model 可用；不会用规则式摘要替代模型输出
+- 新增 MCP tools：
+  - `retrieve_evidence_chunks`
+  - `get_paper_outline`
+  - `get_paper_profile`
+  - `get_paper_summary`
+  - `build_paper_summary`
+- 保留 `retrieve_local_papers` 作为兼容 wrapper，但 tool 描述已提示优先用 summary/profile 做总结、用 evidence tool 做引用核验。
+- `get_paper_profile` / `get_paper_summary` 未命中缓存时返回 `SUMMARY_NOT_READY`，不会同步长耗时总结。
+- `build_paper_summary` 复用现有 job manager，返回 job id 并通过 `get_tool_job_status` 查询。
+- README 已同步新的工具使用策略。
+- 已新增/更新轻量测试、MCP contract 测试、schema 测试。
+
+## 本轮继续完成（接入本地 summary model / vLLM / Qwen3-8B）
+
+- 新增 `RAG_SUMMARY_*` 配置项：
+  - 默认 `RAG_SUMMARY_MODEL_NAME=Qwen/Qwen3-8B`
+  - 默认 `RAG_SUMMARY_BACKEND=vllm`
+  - 默认 `RAG_SUMMARY_MODEL_PATH=./rag/models/Qwen3-8B`
+  - summary 模型默认位于 `rag/models` 下，不再放到 workspace。
+- `rag/storage/model_manager.py` 新增 `ensure_summary_model()`：
+  - 复用现有本地模型完整性检查、下载锁、原子下载逻辑。
+  - summary 模型有独立的 auto-download/offline 配置。
+- 新增 `rag/plugins/summary_model.py`：
+  - `SummaryModelManager`
+  - vLLM 懒加载
+  - Qwen3-8B prompt
+  - section summary / paper profile / paper summary 三层生成
+  - JSON 输出解析
+  - 并发限制
+- `build_paper_summary` 已接入 summary model manager：
+  - 只有后台 job 进入生成阶段才会下载/加载 Qwen。
+  - MCP 启动、list/search/retrieve 不会加载 vLLM。
+  - 如果 vLLM/Qwen 不可用、离线缺模型或下载失败，返回 `SUMMARY_MODEL_UNAVAILABLE`，不会自动降级为规则式摘要。
+- README 和 `.env.example` 已同步 summary model 配置。
+- 新增 summary model 单元测试。
+
+## 本轮继续完成（marker GPU 与删除旧降级路径）
+
+- 已停止旧的 `D:\Scholar-Agent` Python/MCP/marker 进程。
+- 本地 `.env` 已改为 `PAPER_PARSER_DEVICE=cuda`。
+- CUDA 检查通过：
+  - torch: `2.12.0+cu130`
+  - cuda_available: `true`
+  - GPU: `NVIDIA GeForce RTX 5070 Ti`
+- 用 GPU marker 对用户论文做分阶段诊断：
+  - import marker: 约 7.7 秒
+  - create_model_dict(cuda): 约 11.9 秒
+  - converter(pdf): 约 116.8 秒
+  - markdown chars: 80936
+- 结论：之前不是 PDF 或 marker 死锁，而是 CPU marker 路径过慢；GPU marker 可完成。
+- 已删除 PDF parser 自动 PyMuPDF 降级路径：
+  - marker 运行失败直接失败。
+  - 不再提供旧 parser backend 配置。
+  - 不再提供旧 marker timeout 配置。
+- 已删除 summary 自动规则式降级：
+  - 不再提供 summary 规则式降级配置。
+  - 模型缺失/离线/下载失败/vLLM 不可用直接结构化失败。
+- `rag_health_check` 已增加 summary model 状态检查：
+  - `summary_model_complete`
+  - `summary_model_path`
+- 已补充 summary 模型离线缺失不下载、可配置 repo 下载、marker 失败直接报错的测试。
+
+## 本轮真实论文测试（SCMA Codebook Design Based on UDCG）
+
+- 用户放入 `workspace/papers/SCMA_Codebook_Design_Based_on_Uniquely_Decomposable_Constellation_Groups.pdf`。
+- 首次通过正在运行的 MCP server 调用 `add_paper_to_database` 时，job 已提交但长时间停留 running；日志显示停在 job start，数据库未新增记录。
+- 用 PyMuPDF 直接解析同一 PDF：15 页，约 0.03 秒可读出正文，说明 PDF 本身正常。
+- 后续 GPU marker 诊断确认不是 marker 死锁，而是 CPU 路径过慢；GPU marker 约 116.8 秒完成。
+- 已按用户要求删除旧降级路径，后续应使用 `PAPER_PARSER_DEVICE=cuda` 运行 marker。
+- 用新进程强制 PyMuPDF backend 实际导入成功：
+  - paper_id: `local_a236808e`
+  - title: `SCMA Codebook Design Based on Uniquely Decomposable Constellation Groups`
+  - parser_backend: `pymupdf`
+  - chunks: 89
+  - elapsed_ms: 8847
+- `search_local_database`、`get_paper_outline`、`build_paper_summary`、`get_paper_profile`、`get_paper_summary`、`retrieve_evidence_chunks` 均已实际调用成功。
+- 因当时 `rag/models` 下没有 `Qwen3-8B` 模型，旧版本 summary build 曾写入规则式摘要缓存；当前代码已删除该路径，后续会返回 `SUMMARY_MODEL_UNAVAILABLE`：
+  - detail levels: `short`, `medium`
+  - 这些旧缓存记录只作为历史数据存在，后续新任务不会再生成。
+- Evidence 检索成功召回关键片段：
+  - Page 1: abstract 中明确提出基于 UDCG 的 SCMA codebook design。
+  - Page 4: UDC 定义和 `dmin`/superimposed constellation 设计目标。
+  - Page 2: 相关工作和 constellation-based codebook design 对比。
+
+## 最近一次已知验证结果
+
+最近一轮完整验证通过（2026-06-13 本轮修改后）：
+
+```bash
+pytest tests -q
+ruff check rag main.py config.py tests
+mypy rag main.py config.py --no-sqlite-cache
+```
+
+结果为：
+
+- `pytest tests -q`：58 passed
+- `ruff`：passed
+- `mypy`：passed
+
+注意：后续修改后需要重新运行。
+
+## 当前需要重点重构的问题
+
+用户发现：只靠 query 检索召回原始 chunk，对“总结论文、总结方法、生成中文 Word 和英文 LaTeX 报告”这类任务不友好。
+
+曾经加入按论文章节召回的 tool，但问题是：
+
+- 如果直接返回整章内容，token 消耗太大。
+- 如果 `get_section_summary` 在用户请求时现场调用 LLM 总结整章，本质上仍然没有解决 token 问题，只是把成本从 retrieve chunks 转移到 summary tool。
+
+生产级设计结论：
+
+- 总结类工具应该读取“预先生成并缓存的结构化摘要”。
+- 原始 chunk 检索工具只用于证据查找、引用和核验。
+- 长耗时摘要生成应该任务化、缓存化、可重试、可观测。
+
+## 下一阶段目标工具
+
+新增或重构以下 MCP tools：
+
+### 1. `get_paper_outline`
+
+用途：快速了解论文结构，不返回正文。
+
+返回建议：
+
+```json
+{
+  "paper_id": "local_xxx",
+  "title": "...",
+  "sections": [
+    {
+      "section": "Abstract",
+      "chunk_count": 2,
+      "char_count": 3200,
+      "has_summary": true
+    },
+    {
+      "section": "Method",
+      "chunk_count": 8,
+      "char_count": 16800,
+      "has_summary": false
+    }
+  ]
+}
+```
+
+### 2. `get_paper_profile`
+
+用途：给 LLM 一个短上下文，判断论文是否相关，适合任务规划和多论文比较前的筛选。
+
+返回应高度压缩：
+
+```json
+{
+  "paper_id": "local_xxx",
+  "title": "...",
+  "problem": "...",
+  "background": "...",
+  "method": "...",
+  "contributions": ["...", "..."],
+  "experiments": "...",
+  "limitations": "...",
+  "keywords": ["SCMA", "MPA", "Log-MPA"]
+}
+```
+
+建议控制在 1000 到 2000 中文字符，或 600 到 1200 英文 tokens。
+
+### 3. `get_paper_summary`
+
+用途：面向“总结论文”“总结方法”“生成报告初稿”等任务。
+
+参数建议：
+
+```json
+{
+  "paper_id": "local_xxx",
+  "detail_level": "short | medium | long",
+  "language": "zh | en",
+  "include_sections": true,
+  "include_evidence": false,
+  "max_chars": 12000
+}
+```
+
+返回建议：
+
+```json
+{
+  "paper_id": "local_xxx",
+  "summary_status": "ready",
+  "detail_level": "medium",
+  "summary": {
+    "background": "...",
+    "problem": "...",
+    "method": "...",
+    "experiments": "...",
+    "results": "...",
+    "limitations": "...",
+    "takeaways": "..."
+  },
+  "section_summaries": [
+    {
+      "section": "Method",
+      "summary": "..."
+    }
+  ],
+  "truncated": false
+}
+```
+
+如果摘要未生成，不应现场长时间总结，应该返回结构化错误：
+
+```json
+{
+  "status": "not_ready",
+  "error_code": "SUMMARY_NOT_READY",
+  "message": "Paper summary has not been generated yet.",
+  "suggested_tool": "build_paper_summary",
+  "paper_id": "local_xxx"
+}
+```
+
+### 4. `retrieve_evidence_chunks`
+
+用途：重构原有 `retrieve_local_papers`，只服务于证据查找、引用、核验，不承担整篇总结。
+
+参数建议：
+
+```json
+{
+  "query": "message passing approximation method",
+  "paper_ids": ["local_xxx"],
+  "section": "Method",
+  "top_k": 5,
+  "max_chars": 6000
+}
+```
+
+返回必须包含：
+
+```json
+{
+  "chunks": [
+    {
+      "paper_id": "local_xxx",
+      "title": "...",
+      "section": "Method",
+      "chunk_id": "...",
+      "score": 0.82,
+      "text": "...",
+      "page_start": 3,
+      "page_end": 4
+    }
+  ],
+  "truncated": true,
+  "next_cursor": "..."
+}
+```
+
+tool schema 描述里要明确：
+
+- 用于 exact supporting passages、citations、evidence。
+- 不应作为 general paper summarization 的首选工具。
+
+### 5. `build_paper_summary`
+
+用途：后台构建摘要缓存。可以显式调用，也可以在论文导入后自动创建任务。
+
+参数建议：
+
+```json
+{
+  "paper_id": "local_xxx",
+  "language": "zh | en | both",
+  "detail_levels": ["short", "medium", "long"],
+  "force_rebuild": false
+}
+```
+
+返回 job id，使用现有 `get_tool_job_status` 查询进度。
+
+## 数据库建议
+
+不要把摘要塞到原始 paper 表里。建议新增表。
+
+### `paper_sections`
+
+字段：
+
+- `paper_id`
+- `section_id`
+- `section_name`
+- `normalized_section_name`
+- `section_order`
+- `chunk_count`
+- `char_count`
+- `content_hash`
+- `created_at`
+- `updated_at`
+
+### `paper_profiles`
+
+字段：
+
+- `paper_id`
+- `language`
+- `profile_json`
+- `source_hash`
+- `model_name`
+- `prompt_version`
+- `status`
+- `error_code`
+- `error_message`
+- `created_at`
+- `updated_at`
+
+### `paper_summaries`
+
+字段：
+
+- `paper_id`
+- `language`
+- `detail_level`
+- `summary_json`
+- `source_hash`
+- `model_name`
+- `prompt_version`
+- `status`
+- `error_code`
+- `error_message`
+- `created_at`
+- `updated_at`
+
+### `section_summaries`
+
+字段：
+
+- `paper_id`
+- `section_id`
+- `section_name`
+- `language`
+- `detail_level`
+- `summary_text`
+- `source_hash`
+- `model_name`
+- `prompt_version`
+- `status`
+- `error_code`
+- `error_message`
+- `created_at`
+- `updated_at`
+
+关键缓存维度：
+
+- `source_hash`
+- `model_name`
+- `prompt_version`
+- `language`
+- `detail_level`
+
+只要内容、模型和 prompt 版本未变化，就不重复生成。
+
+## 推荐摘要生成策略
+
+不要一次把整篇论文丢给模型。
+
+推荐 Map-Reduce 风格：
+
+1. chunk 级压缩
+   - 每个 chunk 提取极短要点。
+   - 由配置的 summary model 完成；模型不可用时任务失败并返回结构化错误。
+2. section 级摘要
+   - 基于该章节的 chunk 要点生成章节摘要。
+3. paper profile
+   - 基于章节摘要生成固定字段画像。
+4. paper summary
+   - 基于章节摘要生成 short / medium / long 三档摘要。
+
+这样 token 成本发生在导入后或后台任务阶段，用户后续多次查询直接读取缓存。
+
+## 本地总结模型建议
+
+默认推荐：`Qwen/Qwen3-8B`
+
+原因：
+
+- 英文论文总结够用。
+- 中文输出也稳定，适合用户需要中文 Word 总结和英文 LaTeX 总结的双语场景。
+- 模型规模适合本地部署。
+- vLLM 支持 Qwen3。
+- 原生上下文 32K，通常足够做 section-level summary。
+
+不要因为模型支持长上下文就整篇论文一次性塞入模型。仍应按 chunk -> section -> profile/summary 分层生成。
+
+建议配置：
+
+```env
+RAG_SUMMARY_MODEL_NAME=Qwen/Qwen3-8B
+RAG_SUMMARY_BACKEND=vllm
+RAG_SUMMARY_MODEL_PATH=rag/models/summary-model
+RAG_SUMMARY_DEVICE=cuda
+RAG_SUMMARY_GPU_MEMORY_UTILIZATION=0.90
+RAG_SUMMARY_CPU_OFFLOAD_GB=0
+RAG_SUMMARY_MAX_INPUT_TOKENS=4096
+RAG_SUMMARY_MAX_OUTPUT_TOKENS=2048
+RAG_SUMMARY_TEMPERATURE=0.2
+RAG_SUMMARY_TOP_P=0.8
+RAG_SUMMARY_CONCURRENCY=1
+RAG_SUMMARY_TIMEOUT_SECONDS=300
+RAG_SUMMARY_ENFORCE_EAGER=true
+```
+
+硬件分档建议：
+
+- 8GB 显存：`Qwen3-4B` 或 `gemma-3-4b-it` 量化，只做 chunk/section 摘要。
+- 12GB 显存：`Qwen3-8B` INT4/AWQ/GPTQ。
+- 16GB 显存：`Qwen3-8B` 量化，推荐主力配置。
+- 24GB 显存：`Qwen3-14B` 量化，或 `gemma-3-12b-it`，用于更高质量离线摘要。
+- 48GB+ 显存：`Qwen3-32B` 量化，适合高质量离线摘要，不建议默认在线使用。
+
+## 生产级注意事项
+
+### 1. 异步任务不能阻塞 MCP
+
+- `add_paper_to_database` 不应等待本地 LLM 完成总结。
+- 导入后可以创建 summary job。
+- 长任务统一通过 job id 查询。
+- MCP stdio tool 必须快速返回，避免 Claude Code/Codex 调用后长时间无响应。
+
+### 2. 所有摘要必须可追溯
+
+每条 summary 都要记录：
+
+- paper_id
+- section_id 或 section_name
+- source_hash
+- model_name
+- prompt_version
+- generated_at
+- language
+- detail_level
+- status
+- error_code
+
+### 3. 必须支持重新生成
+
+需要支持：
+
+- `force_rebuild=false`
+- `language`
+- `detail_level`
+- `summary_version` 或 `prompt_version`
+
+### 4. 摘要不能替代证据
+
+总结类工具返回的是压缩后的理解，适合报告初稿、方法概述和快速浏览。
+
+如果用户需要引用、核验、逐句依据或比较细节，仍应调用 `retrieve_evidence_chunks` 获取原文片段。
+
+### 5. 控制 token 和输出大小
+
+所有内容返回工具都应支持：
+
+- `max_chars`
+- `detail_level`
+- `include_evidence`
+- `truncated`
+- `next_cursor`
+
+### 6. 失败必须结构化
+
+建议错误码：
+
+- `SUMMARY_NOT_READY`
+- `SUMMARY_MODEL_UNAVAILABLE`
+- `SUMMARY_GENERATION_TIMEOUT`
+- `SUMMARY_GENERATION_FAILED`
+- `PAPER_NOT_FOUND`
+- `SECTION_NOT_FOUND`
+- `TOKEN_BUDGET_EXCEEDED`
+- `VECTOR_STORE_UNAVAILABLE`
+- `INVALID_ARGUMENT`
+
+### 7. 本地模型加载要独立管理
+
+不要每次 tool 调用都加载模型。
+
+需要：
+
+- summary model manager
+- 健康检查
+- 显存检查
+- 并发限制
+- 超时控制
+- 懒加载或启动预热
+
+### 8. 摘要质量需要评估
+
+evaluation 中应增加 summary 评估数据：
+
+- profile 字段是否完整
+- method 是否覆盖核心步骤
+- contribution 是否准确
+- experiments/results 是否保真
+- 是否有幻觉
+- 是否能支撑中文 Word 和英文 LaTeX 报告生成
+
+### 9. 日志不能记录大段论文正文
+
+日志只记录：
+
+- paper_id
+- job_id
+- stage
+- elapsed_ms
+- model_name
+- token_count
+- error_code
+
+不要记录：
+
+- 大段 chunk 正文
+- 完整 prompt
+- 完整摘要正文
+- 用户本地绝对敏感路径
+
+### 10. 安全边界
+
+- PDF 路径限制在配置的 papers 目录内。
+- 模型路径限制在配置的 models 目录内。
+- evaluation/finetune 输入输出路径限制在项目允许目录内。
+- 不允许 tool 读取任意本地路径。
+- 不允许用户通过参数传任意 prompt 模板路径。
+
+## 推荐落地顺序
+
+1. 已完成：检查当前 `rag/tools/paper_tools.py`、`rag/storage/sqlite_store.py`、`rag/storage/paper_manager.py` 的实际实现，确认现有 chunk schema 和 section 字段。
+2. 已完成：新增 `retrieve_evidence_chunks`，保留 `retrieve_local_papers` 兼容入口。
+3. 已完成：新增 `paper_sections` 存储能力，`replace_paper_chunks` 自动写入章节结构。
+4. 已完成：新增 `get_paper_outline`，只读 sections/chunk metadata，不返回正文。
+5. 已完成：新增 `paper_profiles`、`paper_summaries`、`section_summaries` 表和读写 API。
+6. 已完成：新增 summary cache 构建 API；当前实现要求本地 summary model generator。
+7. 已完成：新增 `get_paper_profile` 和 `get_paper_summary`，读取模型生成的缓存结果。
+8. 已完成：新增 `build_paper_summary` 后台任务，复用现有 job/status 机制。
+9. 已完成：接入本地 summary model manager，默认配置 `Qwen/Qwen3-8B` + vLLM。
+10. 在导入后自动创建异步 summary job，但不要阻塞 `add_paper_to_database`。
+11. 已完成：更新 MCP tool schema 描述，让 LLM 优先使用 summary/profile 工具处理总结类任务。
+12. 部分完成：增加单元测试、MCP contract 测试、summary 缓存测试、失败路径测试；后续接入 vLLM 后还需要补模型失败/超时测试。
+13. 增加 evaluation summary 评估脚本和样例数据。
+14. 部分完成：README 已说明摘要任务和工具使用策略；接入本地 summary model 后还需补模型下载和生产部署细节。
+
+## 新 session 接手时建议先运行
+
+```powershell
+git status --short
+pytest tests -q
+ruff check rag main.py config.py tests
+mypy rag main.py config.py --no-sqlite-cache
+```
+
+如果测试因本地模型或 torch/cuda 环境失败，优先区分：
+
+- 纯单元测试是否可跳过重模型。
+- MCP tools 是否懒加载模型。
+- vLLM/torch 是否只在 summary 任务真正执行时加载。
+
+## 当前最重要的工程判断
+
+`get_section_summary`、`get_paper_summary`、`get_paper_profile` 不能设计成实时读取整篇论文并调用 LLM 的工具。它们应该是读取预计算缓存的轻量工具。
+
+真正耗时、耗 token 的摘要生成应发生在导入后的后台任务或显式 `build_paper_summary` 任务中，并且结果要可缓存、可复用、可追踪、可重建。

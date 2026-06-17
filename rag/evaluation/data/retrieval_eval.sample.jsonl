@@ -1,0 +1,2 @@
+{"case_id":"replace_with_real_local_id_1","query":"message passing algorithm for SCMA detection","expected_paper_ids":["local_replace_me"],"expected_sections":["MPA algorithm"]}
+{"case_id":"replace_with_real_local_id_2","query":"Log-MPA complexity reduction in uplink SCMA","expected_paper_ids":["local_replace_me"],"expected_sections":["Log-MPA algorithm"]}

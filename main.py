@@ -13,9 +13,6 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from scholar_agent.core.logging import configure_logging, get_logger
-
-
 def parse_args():
     parser = argparse.ArgumentParser(description="ScholarAgent MCP Server")
     parser.add_argument(
@@ -33,11 +30,17 @@ def parse_args():
 
 
 def main():
+    args = parse_args()
+
+    if args.transport == "stdio":
+        os.environ.setdefault("RAG_LOG_TO_CONSOLE", "false")
+
+    from rag.core.logging import configure_logging, get_logger
+
     log_file = configure_logging()
     logger = get_logger(__name__)
-    args = parse_args()
     logger.info("ScholarAgent MCP entrypoint mode=%s transport=%s log_file=%s", args.mode, args.transport, log_file)
-    from scholar_agent.mcp_server import ScholarMCPServer
+    from rag import ScholarMCPServer
 
     server = ScholarMCPServer()
 
