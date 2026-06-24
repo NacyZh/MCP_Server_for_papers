@@ -1,5 +1,7 @@
 # Retrieval Evaluation
 
+[English](README.md) | [简体中文](README_zh.md)
+
 This directory contains the local retrieval-quality evaluation workflow for the RAG MCP server.
 
 ## Directory Layout
@@ -8,8 +10,8 @@ This directory contains the local retrieval-quality evaluation workflow for the 
 rag/evaluation/
   data/
     retrieval_eval.sample.jsonl   sample schema, committed
-    retrieval_eval.jsonl          real evaluation set, ignored by Git
-  results/                        JSON reports, ignored by Git
+    retrieval_eval.jsonl          real evaluation set
+  results/                        JSON reports
   retrieval_quality.py            metric helpers
   run_retrieval_eval.py           command-line evaluation script
 ```
@@ -21,7 +23,7 @@ Real evaluation data should be manually collected and labeled. The sample file i
 Each JSONL row must contain `query` and at least one expected field:
 
 ```json
-{"case_id":"scma_mpa_001","query":"message passing algorithm for SCMA detection","expected_paper_ids":["local_xxx"],"expected_sections":["MPA algorithm"]}
+{"case_id":"example_001","query":"example query","expected_paper_ids":["local_xxx"],"expected_sections":["example section"]}
 ```
 
 Supported expected fields:

@@ -1,5 +1,7 @@
 # HyDE Fine-Tuning
 
+[English](README.md) | [简体中文](README_zh.md)
+
 This directory contains utilities for fine-tuning a local HyDE generator used by the RAG retrieval pipeline.
 
 HyDE generates a compact hypothetical paper passage from a query. The generated passage is appended to the original query for dense retrieval, while BM25 and reranking can still use the original query.
@@ -36,7 +38,7 @@ Output rows use this schema:
 {"query":"...","passage":"...","paper_id":"local_xxx","title":"...","source":"title_question"}
 ```
 
-The builder is deterministic and does not call an LLM. It creates weak labels from titles, authors, tags, and existing chunks. For production-quality HyDE, manually inspect and filter the generated rows.
+The builder is deterministic and does not call an LLM. It creates weak labels from titles, authors, tags, and existing chunks. For HyDE, manually inspect and filter the generated rows.
 
 ## Train With LLaMA-Factory
 
@@ -85,7 +87,7 @@ HYDE_VLLM_MAX_MODEL_LEN=2048
 For a quick HyDE on/off recall check, prepare a JSONL file with:
 
 ```json
-{"query":"SCMA Log-MPA complexity reduction","paper_id":"local_xxx"}
+{"query":"query","paper_id":"local_xxx"}
 ```
 
 Then run:
@@ -95,14 +97,3 @@ Then run:
 ```
 
 For production retrieval evaluation, prefer the broader evaluation workflow in `rag/evaluation`, which compares hybrid, dense, and BM25 modes and writes full reports.
-
-## Git Policy
-
-Fine-tuning data and models are local artifacts and are ignored by Git:
-
-```text
-rag/finetune/data/*
-rag/finetune/models/*
-```
-
-Commit only scripts, README files, and small schema examples.
