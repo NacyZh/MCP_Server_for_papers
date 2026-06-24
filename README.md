@@ -1,5 +1,7 @@
 # ScholarAgent RAG MCP Server
 
+[English](README.md) | [简体中文](README_zh.md)
+
 ScholarAgent is now a focused local-paper RAG MCP server. It exposes a small set of MCP tools for importing PDFs, indexing them into SQLite + ChromaDB, and retrieving section-aware paper chunks for Claude Code, Codex, or any MCP client.
 
 ## Features
@@ -61,8 +63,7 @@ python -m pip install -r requirements.txt
 Copy `.env.example` to `.env` and adjust paths if needed:
 
 ```text
-WORKSPACE_DIR=./workspace
-PAPERS_DIR=./workspace/papers
+PAPERS_DIR=path/to/papers
 BGE_M3_MODEL_PATH=./rag/models/bge-m3
 BGE_RERANKER_MODEL_PATH=./rag/models/bge-reranker-v2-m3
 BGE_AUTO_DOWNLOAD=true
@@ -357,7 +358,7 @@ Optional training utilities are in `scripts/` and can generate LLaMA-Factory con
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-Production checks:
+checks:
 
 ```powershell
 .\.venv\Scripts\python.exe -m ruff check rag main.py config.py tests
@@ -366,11 +367,3 @@ Production checks:
 .\.venv\Scripts\python.exe -m build --no-isolation
 .\.venv\Scripts\python.exe -m pip_audit --local --cache-dir .pip-audit-cache --progress-spinner off
 ```
-
-On Windows, run the build check from a clean checkout or a temporary copy if stale
-`*.egg-info` ACLs block setuptools from replacing its temporary files. CI runs this
-check from a clean workspace.
-
-`pip-audit` is intentionally treated as a release advisory because the ML stack can include
-upstream packages with no compatible fixed version. Review and resolve its report before a
-public release.

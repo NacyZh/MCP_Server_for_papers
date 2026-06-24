@@ -148,6 +148,38 @@ def test_paper_db_stores_and_deletes_chunks(monkeypatch, tmp_path):
     assert db.get_paper_chunks("paper_1") == []
 
 
+def test_paper_db_metadata_search_matches_non_contiguous_terms(monkeypatch, tmp_path):
+    import config as config_mod
+    import rag.storage.sqlite_store as sqlite_store
+
+    monkeypatch.setattr(config_mod.conf, "DB_DIR", str(tmp_path / "db"))
+    monkeypatch.setattr(sqlite_store.conf, "DB_DIR", str(tmp_path / "db"))
+
+    db = sqlite_store.PaperDB()
+    db.add_paper(
+        "paper_transformer",
+        "Attention Is All You Need",
+        authors="Vaswani et al.",
+        abstract="A sequence transduction model based on self attention.",
+        tags="transformer",
+        normalized_title="attention is all you need",
+    )
+    db.add_paper(
+        "paper_graph",
+        "Graph Retrieval for RAG",
+        authors="Demo",
+        abstract="Graph neural retrieval for local paper search.",
+        tags="rag graph",
+        normalized_title="graph retrieval for rag",
+    )
+
+    results = db.search_papers("transformer attention mechanism")
+
+    assert results
+    assert results[0]["id"] == "paper_transformer"
+    assert {item["id"] for item in results} == {"paper_transformer"}
+
+
 def test_summary_cache_key_includes_model_and_prompt(monkeypatch, tmp_path):
     import config as config_mod
     import rag.storage.sqlite_store as sqlite_store

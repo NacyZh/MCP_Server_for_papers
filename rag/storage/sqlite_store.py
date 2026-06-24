@@ -18,6 +18,41 @@ def _normalize_section_name(value: str) -> str:
     return normalized or "unknown"
 
 
+_METADATA_SEARCH_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "by",
+    "for",
+    "from",
+    "in",
+    "into",
+    "is",
+    "of",
+    "on",
+    "or",
+    "paper",
+    "study",
+    "the",
+    "to",
+    "using",
+    "with",
+}
+
+
+def _metadata_search_terms(query: str) -> List[str]:
+    words = re.findall(r"[\w-]+", str(query or "").lower(), flags=re.UNICODE)
+    terms = [
+        word
+        for word in words
+        if len(word) >= 2 and word not in _METADATA_SEARCH_STOPWORDS
+    ]
+    return list(dict.fromkeys(terms))[:8]
+
+
 class PaperDB:
     """Manages paper metadata (title, authors, abstract, etc.) in SQLite."""
 
@@ -686,18 +721,59 @@ class PaperDB:
             )
         )
 
-    def search_papers(self, keyword):
+    def search_papers(self, keyword: str) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            search_term = f"%{keyword}%"
+            raw_query = str(keyword or "").strip()
+            search_term = f"%{raw_query}%"
+            terms = _metadata_search_terms(raw_query)
+            fields = ("title", "normalized_title", "authors", "abstract", "tags", "doi")
+            score_clauses = [
+                "CASE WHEN title = ? COLLATE NOCASE THEN 200 ELSE 0 END",
+                "CASE WHEN title LIKE ? COLLATE NOCASE THEN 100 ELSE 0 END",
+                "CASE WHEN normalized_title LIKE ? COLLATE NOCASE THEN 90 ELSE 0 END",
+                "CASE WHEN authors LIKE ? COLLATE NOCASE THEN 50 ELSE 0 END",
+                "CASE WHEN abstract LIKE ? COLLATE NOCASE THEN 30 ELSE 0 END",
+                "CASE WHEN tags LIKE ? COLLATE NOCASE THEN 40 ELSE 0 END",
+                "CASE WHEN doi LIKE ? COLLATE NOCASE THEN 80 ELSE 0 END",
+            ]
+            score_params: List[Any] = [
+                raw_query,
+                search_term,
+                search_term,
+                search_term,
+                search_term,
+                search_term,
+                search_term,
+            ]
+            where_clauses = [f"{field} LIKE ? COLLATE NOCASE" for field in fields]
+            where_params: List[Any] = [search_term for _ in fields]
+            for term in terms:
+                like_term = f"%{term}%"
+                score_clauses.extend(
+                    [
+                        "CASE WHEN title LIKE ? COLLATE NOCASE THEN 20 ELSE 0 END",
+                        "CASE WHEN normalized_title LIKE ? COLLATE NOCASE THEN 18 ELSE 0 END",
+                        "CASE WHEN authors LIKE ? COLLATE NOCASE THEN 10 ELSE 0 END",
+                        "CASE WHEN abstract LIKE ? COLLATE NOCASE THEN 6 ELSE 0 END",
+                        "CASE WHEN tags LIKE ? COLLATE NOCASE THEN 8 ELSE 0 END",
+                        "CASE WHEN doi LIKE ? COLLATE NOCASE THEN 12 ELSE 0 END",
+                    ]
+                )
+                score_params.extend([like_term] * len(fields))
+                where_clauses.extend(f"{field} LIKE ? COLLATE NOCASE" for field in fields)
+                where_params.extend([like_term] * len(fields))
+            score_sql = " + ".join(score_clauses)
+            where_sql = " OR ".join(f"({clause})" for clause in where_clauses)
             cursor.execute(
-                """
-                SELECT id, title, authors, publish_year, tags
+                f"""
+                SELECT id, title, authors, publish_year, tags, doi,
+                       ({score_sql}) AS search_score
                 FROM papers
-                WHERE title LIKE ? OR authors LIKE ? OR abstract LIKE ? OR tags LIKE ?
-                ORDER BY add_time DESC
+                WHERE {where_sql}
+                ORDER BY search_score DESC, add_time DESC
                 """,
-                (search_term, search_term, search_term, search_term),
+                (*score_params, *where_params),
             )
             rows = cursor.fetchall()
             results = [dict(row) for row in rows]

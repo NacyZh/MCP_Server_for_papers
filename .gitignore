@@ -30,10 +30,7 @@ build/
 .github/
 
 # Workspace data (large files, runtime data)
-workspace/db/
-workspace/logs/
-workspace/models/
-workspace/papers/
+workspace
 
 # RAG runtime data and local models
 rag/db/
