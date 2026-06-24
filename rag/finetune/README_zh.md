@@ -96,4 +96,4 @@ HYDE_VLLM_MAX_MODEL_LEN=2048
 .\.venv\Scripts\python.exe -m rag.finetune.evaluate_hyde_recall --eval-jsonl rag/finetune/data/hyde_eval.jsonl --k 5
 ```
 
-生产级 retrieval evaluation 推荐使用 `rag/evaluation` 中更完整的评估流程，它会比较 hybrid、dense 和 BM25 模式并写入完整报告。
+ retrieval evaluation 推荐使用 `rag/evaluation` 中更完整的评估流程，它会比较 hybrid、dense 和 BM25 模式并写入完整报告。

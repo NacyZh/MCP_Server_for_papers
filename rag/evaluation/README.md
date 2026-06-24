@@ -72,12 +72,3 @@ The report includes:
 - metric deltas between retrieval modes
 
 Use `hybrid` as the default baseline unless you are explicitly testing dense-only or BM25-only behavior.
-
-## Git Policy
-
-Only schema examples and source code are committed. Real evaluation datasets and reports stay local:
-
-```text
-rag/evaluation/data/retrieval_eval.jsonl
-rag/evaluation/results/*.json
-```

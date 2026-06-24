@@ -72,12 +72,3 @@ rag/evaluation/results/retrieval_eval_<timestamp>.json
 - 不同检索模式之间的指标差异
 
 除非明确测试 dense-only 或 BM25-only 行为，否则建议使用 `hybrid` 作为默认 baseline。
-
-## Git 策略
-
-仓库只提交 schema 示例和源代码。真实评估数据集和报告保留在本地：
-
-```text
-rag/evaluation/data/retrieval_eval.jsonl
-rag/evaluation/results/*.json
-```

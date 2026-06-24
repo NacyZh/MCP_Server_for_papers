@@ -96,4 +96,4 @@ Then run:
 .\.venv\Scripts\python.exe -m rag.finetune.evaluate_hyde_recall --eval-jsonl rag/finetune/data/hyde_eval.jsonl --k 5
 ```
 
-For production retrieval evaluation, prefer the broader evaluation workflow in `rag/evaluation`, which compares hybrid, dense, and BM25 modes and writes full reports.
+For retrieval evaluation, prefer the broader evaluation workflow in `rag/evaluation`, which compares hybrid, dense, and BM25 modes and writes full reports.
